@@ -1,1 +1,413 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>タイヤ管理 | 関根商店</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  :root {
+    --navy: #1e3a5f;
+    --navy-dark: #16293f;
+    --green: #4a9d7f;
+    --green-light: #e6f4ef;
+    --gray-light: #f0f2f5;
+    --red-light: #fdeceb;
+  }
+  body {
+    font-family: "Hiragino Sans", "Noto Sans JP", sans-serif;
+    background: linear-gradient(135deg, #eef3f8 0%, #e2ecf5 100%);
+    min-height: 100vh;
+    padding-bottom: 40px;
+  }
+  header {
+    background: var(--navy);
+    color: #fff;
+    padding: 22px 16px;
+    text-align: center;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.15);
+  }
+  header h1 { font-size: 20px; letter-spacing: 1px; }
+  header .underline {
+    width: 40px; height: 3px; background: var(--green);
+    margin: 8px auto 6px; border-radius: 2px;
+  }
+  header p { font-size: 12px; opacity: 0.85; }
 
+  .install-bar {
+    max-width: 480px; margin: 12px auto 0; padding: 0 16px;
+    display: none;
+  }
+  .install-bar.show { display: block; }
+  .install-btn {
+    background: var(--green); color: #fff; border: none;
+    border-radius: 10px; padding: 12px; font-size: 14px; font-weight: bold;
+    width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px;
+  }
+
+  .tabs {
+    display: flex;
+    max-width: 480px;
+    margin: 16px auto 0;
+    background: #fff;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+  }
+  .tab {
+    flex: 1; padding: 12px; text-align: center;
+    font-size: 14px; font-weight: bold; color: #888; cursor: pointer;
+  }
+  .tab.active { background: var(--navy); color: #fff; }
+
+  .container { max-width: 480px; margin: 16px auto; padding: 0 16px; }
+
+  .card {
+    background: #fff; border-radius: 14px; padding: 18px;
+    margin-bottom: 14px; box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  }
+
+  select, input {
+    width: 100%; padding: 10px; border: 1px solid #d5dde5;
+    border-radius: 8px; font-size: 15px; margin-top: 6px; margin-bottom: 14px;
+  }
+  select:focus, input:focus { outline: none; border-color: var(--green); }
+  label { font-size: 13px; color: #555; font-weight: bold; }
+
+  button {
+    width: 100%; padding: 12px; border: none; border-radius: 10px;
+    background: var(--navy); color: #fff; font-size: 15px; font-weight: bold; cursor: pointer;
+  }
+  button:active { opacity: 0.8; }
+  button.accent { background: var(--green); }
+  button.danger { background: var(--red-light); color: #c0392b; }
+
+  .share-row { display: flex; gap: 8px; margin-bottom: 4px; }
+  .share-btn {
+    flex: 1; padding: 10px 4px; font-size: 12px; border-radius: 8px;
+    background: var(--gray-light); color: var(--navy); font-weight: bold;
+  }
+  .share-btn.line { background: #d9f4e6; color: #1a7a4c; }
+  .share-btn.mail { background: var(--green-light); color: var(--navy); }
+  .share-btn.print { background: var(--gray-light); color: var(--navy); }
+
+  .truck-card {
+    border: 1px solid #eef1f4; border-radius: 12px; padding: 14px;
+    margin-bottom: 10px; background: #fafcfe;
+  }
+  .truck-card:last-child { margin-bottom: 0; }
+  .truck-top {
+    display: flex; justify-content: space-between; align-items: flex-start;
+  }
+  .truck-name { font-weight: bold; font-size: 16px; color: var(--navy); }
+  .truck-size { font-size: 12px; color: var(--green); font-weight: bold; margin-top: 2px; }
+  .status-tag {
+    font-size: 11px; font-weight: bold; padding: 4px 10px; border-radius: 20px;
+    white-space: nowrap;
+  }
+  .status-done { background: var(--green-light); color: var(--green); }
+  .status-pending { background: var(--red-light); color: #c0392b; }
+  .truck-meta {
+    font-size: 12px; color: #999; margin-top: 8px;
+  }
+  .truck-actions { margin-top: 10px; display: flex; gap: 8px; }
+  .truck-actions input[type=date] { margin: 0; flex: 1; padding: 8px; font-size: 13px; }
+  .truck-actions button {
+    width: auto; padding: 8px 14px; font-size: 13px; margin: 0;
+  }
+
+  .icon-btn {
+    width: auto; padding: 6px 10px; font-size: 12px; border-radius: 6px; margin-left: 6px;
+  }
+  .settings-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 12px 0; border-bottom: 1px solid #eee;
+  }
+  .settings-row:last-child { border-bottom: none; }
+
+  .section-title {
+    font-size: 14px; font-weight: bold; color: var(--navy);
+    margin-bottom: 10px; display: flex; align-items: center;
+  }
+  .section-title .emoji { font-size: 18px; margin-right: 6px; }
+
+  .empty-msg { text-align: center; color: #aaa; font-size: 13px; padding: 20px 0; }
+  .hidden { display: none; }
+
+  @media print {
+    header, .tabs, .share-row, .truck-actions, .settings-row button { display: none !important; }
+    body { background: #fff; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🛞 タイヤ管理</h1>
+  <div class="underline"></div>
+  <p>点検・交換・保管をスマートに</p>
+</header>
+
+<div class="install-bar" id="installBar">
+  <button class="install-btn" onclick="installApp()">📲 アプリを追加</button>
+</div>
+
+<div class="tabs">
+  <div class="tab active" id="tabMain" onclick="switchTab('main')">記録</div>
+  <div class="tab" id="tabSettings" onclick="switchTab('settings')">設定</div>
+</div>
+
+<div class="container">
+
+  <!-- メイン画面：一覧＋共有 -->
+  <div id="viewMain">
+    <div class="card">
+      <div class="section-title"><span class="emoji">📤</span>共有する</div>
+      <div class="share-row">
+        <button class="share-btn print" onclick="window.print()">🖨️ 印刷</button>
+        <button class="share-btn mail" onclick="shareMail()">✉️ メール</button>
+        <button class="share-btn line" onclick="shareLine()">💬 LINE</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title"><span class="emoji">🚚</span>トラック一覧</div>
+      <div id="truckStatusList"><div class="empty-msg">まだ登録がありません（設定タブから登録してください）</div></div>
+    </div>
+  </div>
+
+  <!-- 設定画面：トラック登録 -->
+  <div id="viewSettings" class="hidden">
+    <div class="card">
+      <div class="section-title"><span class="emoji">➕</span>トラックを登録</div>
+      <label>トラック名</label>
+      <input type="text" id="inputTruckName" placeholder="例：1号車">
+      <label>タイヤサイズ</label>
+      <input type="text" id="inputTireSize" placeholder="例：205/85R16">
+      <button onclick="addTruck()">登録する</button>
+    </div>
+
+    <div class="card">
+      <div class="section-title"><span class="emoji">📋</span>登録済みトラック</div>
+      <div id="truckList"><div class="empty-msg">まだ登録がありません</div></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ⚠️ ここに他アプリと同じfirebaseConfigを貼ってください（messagingSenderId・appIdも必須です）
+const firebaseConfig = {
+  apiKey: "AIzaSyD99MxOMnGplSQjV7830bS7-gdCBSM9DGY",
+  authDomain: "sekine-store.firebaseapp.com",
+  projectId: "sekine-store",
+  storageBucket: "sekine-store.appspot.com",
+  messagingSenderId: "",
+  appId: ""
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+let trucks = [];
+let latestRecords = {}; // truckId -> {date}
+
+function switchTab(tab) {
+  document.getElementById('viewMain').classList.toggle('hidden', tab !== 'main');
+  document.getElementById('viewSettings').classList.toggle('hidden', tab !== 'settings');
+  document.getElementById('tabMain').classList.toggle('active', tab === 'main');
+  document.getElementById('tabSettings').classList.toggle('active', tab === 'settings');
+}
+
+// トラック登録
+async function addTruck() {
+  const name = document.getElementById('inputTruckName').value.trim();
+  const size = document.getElementById('inputTireSize').value.trim();
+  if (!name || !size) { alert('トラック名とタイヤサイズを入力してください'); return; }
+
+  try {
+    await db.collection('tire_trucks').add({
+      name: name,
+      tireSize: size,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    document.getElementById('inputTruckName').value = '';
+    document.getElementById('inputTireSize').value = '';
+    loadAll();
+  } catch (e) {
+    alert('登録に失敗しました: ' + e.message);
+  }
+}
+
+// トラック削除
+async function deleteTruck(id) {
+  if (!confirm('このトラックを削除しますか？交換履歴も一緒に消えます。')) return;
+  try {
+    await db.collection('tire_trucks').doc(id).delete();
+    loadAll();
+  } catch (e) {
+    alert('削除に失敗しました: ' + e.message);
+  }
+}
+
+// 交換を記録（トラックごと）
+async function recordExchange(truckId) {
+  const dateInput = document.getElementById('date-' + truckId);
+  const date = dateInput.value;
+  if (!date) { alert('交換日を選んでください'); return; }
+  const truck = trucks.find(t => t.id === truckId);
+
+  try {
+    await db.collection('tire_records').add({
+      truckId: truckId,
+      truckName: truck ? truck.name : '',
+      date: date,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    loadAll();
+  } catch (e) {
+    alert('記録に失敗しました: ' + e.message);
+  }
+}
+
+// 設定画面のトラック一覧描画
+function renderSettingsList() {
+  const listEl = document.getElementById('truckList');
+  if (trucks.length === 0) {
+    listEl.innerHTML = '<div class="empty-msg">まだ登録がありません</div>';
+    return;
+  }
+  listEl.innerHTML = trucks.map(t => `
+    <div class="settings-row">
+      <div>
+        <div class="truck-name">${escapeHtml(t.name)}</div>
+        <div class="truck-size">${escapeHtml(t.tireSize)}</div>
+      </div>
+      <button class="icon-btn danger" onclick="deleteTruck('${t.id}')">削除</button>
+    </div>
+  `).join('');
+}
+
+// メイン画面のステータス一覧描画
+function renderStatusList() {
+  const listEl = document.getElementById('truckStatusList');
+  if (trucks.length === 0) {
+    listEl.innerHTML = '<div class="empty-msg">まだ登録がありません（設定タブから登録してください）</div>';
+    return;
+  }
+  listEl.innerHTML = trucks.map(t => {
+    const rec = latestRecords[t.id];
+    const done = !!rec;
+    const statusHtml = done
+      ? `<span class="status-tag status-done">交換済み</span>`
+      : `<span class="status-tag status-pending">未交換</span>`;
+    const metaHtml = done
+      ? `<div class="truck-meta">最終交換日：${formatDate(rec.date)}</div>`
+      : `<div class="truck-meta">交換履歴なし</div>`;
+    return `
+      <div class="truck-card">
+        <div class="truck-top">
+          <div>
+            <div class="truck-name">${escapeHtml(t.name)}</div>
+            <div class="truck-size">${escapeHtml(t.tireSize)}</div>
+          </div>
+          ${statusHtml}
+        </div>
+        ${metaHtml}
+        <div class="truck-actions">
+          <input type="date" id="date-${t.id}">
+          <button class="accent" onclick="recordExchange('${t.id}')">記録</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// 全データ読み込み
+async function loadAll() {
+  const truckSnap = await db.collection('tire_trucks').orderBy('createdAt', 'asc').get();
+  trucks = [];
+  truckSnap.forEach(doc => trucks.push({ id: doc.id, ...doc.data() }));
+
+  // 各トラックの最新交換記録を取得
+  latestRecords = {};
+  const recordSnap = await db.collection('tire_records').orderBy('date', 'desc').get();
+  recordSnap.forEach(doc => {
+    const d = doc.data();
+    if (!latestRecords[d.truckId]) {
+      latestRecords[d.truckId] = d;
+    }
+  });
+
+  renderSettingsList();
+  renderStatusList();
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return '';
+  const [y, m, d] = dateStr.split('-');
+  return `${y}/${m}/${d}`;
+}
+
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str || '';
+  return div.innerHTML;
+}
+
+function buildSummaryText() {
+  let text = '【タイヤ交換状況】\n';
+  trucks.forEach(t => {
+    const rec = latestRecords[t.id];
+    const status = rec ? `交換済み（${formatDate(rec.date)}）` : '未交換';
+    text += `\n${t.name}（${t.tireSize}）：${status}`;
+  });
+  return text;
+}
+
+function shareMail() {
+  const body = encodeURIComponent(buildSummaryText());
+  const subject = encodeURIComponent('タイヤ交換状況');
+  window.location.href = `mailto:?subject=${subject}&body=${body}`;
+}
+
+function shareLine() {
+  const text = encodeURIComponent(buildSummaryText());
+  window.open(`https://line.me/R/msg/text/?${text}`, '_blank');
+}
+
+// アプリ追加（PWAインストール）ボタン
+let deferredPrompt = null;
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  document.getElementById('installBar').classList.add('show');
+});
+
+async function installApp() {
+  if (!deferredPrompt) {
+    alert('このブラウザではボタンからの追加に対応していません。\niPhoneの場合は共有ボタン→「ホーム画面に追加」からできます。');
+    return;
+  }
+  deferredPrompt.prompt();
+  const { outcome } = await deferredPrompt.userChoice;
+  if (outcome === 'accepted') {
+    document.getElementById('installBar').classList.remove('show');
+  }
+  deferredPrompt = null;
+}
+
+window.addEventListener('appinstalled', () => {
+  document.getElementById('installBar').classList.remove('show');
+});
+
+// 初期化
+loadAll();
+</script>
+
+</body>
+</html>
