@@ -114,9 +114,13 @@
   .truck-meta {
     font-size: 12px; color: #999; margin-top: 8px;
   }
-  .truck-actions { margin-top: 10px; display: flex; gap: 8px; }
-  .truck-actions input[type=date] { margin: 0; flex: 1; padding: 8px; font-size: 13px; }
-  .truck-actions button {
+  .truck-actions { margin-top: 10px; }
+  .truck-actions .shop-select {
+    margin: 0 0 8px; padding: 8px; font-size: 13px;
+  }
+  .truck-actions .action-row { display: flex; gap: 8px; }
+  .truck-actions .action-row input[type=date] { margin: 0; flex: 1; padding: 8px; font-size: 13px; }
+  .truck-actions .action-row button {
     width: auto; padding: 8px 14px; font-size: 13px; margin: 0;
   }
 
@@ -180,20 +184,39 @@
     </div>
   </div>
 
-  <!-- 設定画面：トラック登録 -->
+  <!-- 設定画面：トラック登録・交換場所登録 -->
   <div id="viewSettings" class="hidden">
     <div class="card">
       <div class="section-title"><span class="emoji">➕</span>トラックを登録</div>
       <label>トラック名</label>
       <input type="text" id="inputTruckName" placeholder="例：1号車">
-      <label>タイヤサイズ</label>
-      <input type="text" id="inputTireSize" placeholder="例：205/85R16">
       <button onclick="addTruck()">登録する</button>
     </div>
 
     <div class="card">
       <div class="section-title"><span class="emoji">📋</span>登録済みトラック</div>
       <div id="truckList"><div class="empty-msg">まだ登録がありません</div></div>
+    </div>
+
+    <div class="card">
+      <div class="section-title"><span class="emoji">🛞</span>タイヤサイズを登録</div>
+      <label>トラック</label>
+      <select id="selectTireSizeTruck"><option value="">トラックを選択</option></select>
+      <label>タイヤサイズ</label>
+      <input type="text" id="inputTireSizeOnly" placeholder="例：205/85R16">
+      <button class="accent" onclick="setTireSize()">登録する</button>
+    </div>
+
+    <div class="card">
+      <div class="section-title"><span class="emoji">🏪</span>交換場所を登録</div>
+      <label>店舗名・業者名</label>
+      <input type="text" id="inputShopName" placeholder="例：〇〇タイヤ商会">
+      <button class="accent" onclick="addShop()">登録する</button>
+    </div>
+
+    <div class="card">
+      <div class="section-title"><span class="emoji">📋</span>登録済み交換場所</div>
+      <div id="shopList"><div class="empty-msg">まだ登録がありません</div></div>
     </div>
   </div>
 
@@ -214,7 +237,8 @@ firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 
 let trucks = [];
-let latestRecords = {}; // truckId -> {date}
+let shops = [];
+let latestRecords = {}; // truckId -> {date, shopName, ...}
 
 function switchTab(tab) {
   document.getElementById('viewMain').classList.toggle('hidden', tab !== 'main');
@@ -226,17 +250,33 @@ function switchTab(tab) {
 // トラック登録
 async function addTruck() {
   const name = document.getElementById('inputTruckName').value.trim();
-  const size = document.getElementById('inputTireSize').value.trim();
-  if (!name || !size) { alert('トラック名とタイヤサイズを入力してください'); return; }
+  if (!name) { alert('トラック名を入力してください'); return; }
 
   try {
     await db.collection('tire_trucks').add({
       name: name,
-      tireSize: size,
+      tireSize: '',
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
     document.getElementById('inputTruckName').value = '';
-    document.getElementById('inputTireSize').value = '';
+    loadAll();
+  } catch (e) {
+    alert('登録に失敗しました: ' + e.message);
+  }
+}
+
+// タイヤサイズ登録（既存トラックに設定）
+async function setTireSize() {
+  const truckId = document.getElementById('selectTireSizeTruck').value;
+  const size = document.getElementById('inputTireSizeOnly').value.trim();
+  if (!truckId) { alert('トラックを選んでください'); return; }
+  if (!size) { alert('タイヤサイズを入力してください'); return; }
+
+  try {
+    await db.collection('tire_trucks').doc(truckId).update({
+      tireSize: size
+    });
+    document.getElementById('inputTireSizeOnly').value = '';
     loadAll();
   } catch (e) {
     alert('登録に失敗しました: ' + e.message);
@@ -254,18 +294,51 @@ async function deleteTruck(id) {
   }
 }
 
+// 交換場所登録
+async function addShop() {
+  const name = document.getElementById('inputShopName').value.trim();
+  if (!name) { alert('店舗名・業者名を入力してください'); return; }
+
+  try {
+    await db.collection('tire_shops').add({
+      name: name,
+      createdAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    document.getElementById('inputShopName').value = '';
+    loadAll();
+  } catch (e) {
+    alert('登録に失敗しました: ' + e.message);
+  }
+}
+
+// 交換場所削除
+async function deleteShop(id) {
+  if (!confirm('この交換場所を削除しますか？')) return;
+  try {
+    await db.collection('tire_shops').doc(id).delete();
+    loadAll();
+  } catch (e) {
+    alert('削除に失敗しました: ' + e.message);
+  }
+}
+
 // 交換を記録（トラックごと）
 async function recordExchange(truckId) {
   const dateInput = document.getElementById('date-' + truckId);
+  const shopSelect = document.getElementById('shop-' + truckId);
   const date = dateInput.value;
   if (!date) { alert('交換日を選んでください'); return; }
   const truck = trucks.find(t => t.id === truckId);
+  const shopId = shopSelect ? shopSelect.value : '';
+  const shop = shops.find(s => s.id === shopId);
 
   try {
     await db.collection('tire_records').add({
       truckId: truckId,
       truckName: truck ? truck.name : '',
       date: date,
+      shopId: shopId || '',
+      shopName: shop ? shop.name : '',
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
     loadAll();
@@ -285,9 +358,33 @@ function renderSettingsList() {
     <div class="settings-row">
       <div>
         <div class="truck-name">${escapeHtml(t.name)}</div>
-        <div class="truck-size">${escapeHtml(t.tireSize)}</div>
+        <div class="truck-size">${t.tireSize ? escapeHtml(t.tireSize) : '（サイズ未設定）'}</div>
       </div>
       <button class="icon-btn danger" onclick="deleteTruck('${t.id}')">削除</button>
+    </div>
+  `).join('');
+}
+
+// タイヤサイズ登録カードのトラック選択肢を描画
+function renderTireSizeTruckSelect() {
+  const selectEl = document.getElementById('selectTireSizeTruck');
+  const current = selectEl.value;
+  selectEl.innerHTML = '<option value="">トラックを選択</option>' +
+    trucks.map(t => `<option value="${t.id}">${escapeHtml(t.name)}${t.tireSize ? '（現在：' + escapeHtml(t.tireSize) + '）' : ''}</option>`).join('');
+  selectEl.value = current;
+}
+
+// 設定画面の交換場所一覧描画
+function renderShopSettingsList() {
+  const listEl = document.getElementById('shopList');
+  if (shops.length === 0) {
+    listEl.innerHTML = '<div class="empty-msg">まだ登録がありません</div>';
+    return;
+  }
+  listEl.innerHTML = shops.map(s => `
+    <div class="settings-row">
+      <div class="truck-name">${escapeHtml(s.name)}</div>
+      <button class="icon-btn danger" onclick="deleteShop('${s.id}')">削除</button>
     </div>
   `).join('');
 }
@@ -299,28 +396,37 @@ function renderStatusList() {
     listEl.innerHTML = '<div class="empty-msg">まだ登録がありません（設定タブから登録してください）</div>';
     return;
   }
+  const shopOptions = shops.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
+
   listEl.innerHTML = trucks.map(t => {
     const rec = latestRecords[t.id];
     const done = !!rec;
     const statusHtml = done
       ? `<span class="status-tag status-done">交換済み</span>`
       : `<span class="status-tag status-pending">未交換</span>`;
+    const shopText = done && rec.shopName ? `　🏪 ${escapeHtml(rec.shopName)}` : '';
     const metaHtml = done
-      ? `<div class="truck-meta">最終交換日：${formatDate(rec.date)}</div>`
+      ? `<div class="truck-meta">最終交換日：${formatDate(rec.date)}${shopText}</div>`
       : `<div class="truck-meta">交換履歴なし</div>`;
     return `
       <div class="truck-card">
         <div class="truck-top">
           <div>
             <div class="truck-name">${escapeHtml(t.name)}</div>
-            <div class="truck-size">${escapeHtml(t.tireSize)}</div>
+            <div class="truck-size">${t.tireSize ? escapeHtml(t.tireSize) : 'サイズ未設定'}</div>
           </div>
           ${statusHtml}
         </div>
         ${metaHtml}
         <div class="truck-actions">
-          <input type="date" id="date-${t.id}">
-          <button class="accent" onclick="recordExchange('${t.id}')">記録</button>
+          <select class="shop-select" id="shop-${t.id}">
+            <option value="">交換場所を選択（任意）</option>
+            ${shopOptions}
+          </select>
+          <div class="action-row">
+            <input type="date" id="date-${t.id}">
+            <button class="accent" onclick="recordExchange('${t.id}')">記録</button>
+          </div>
         </div>
       </div>
     `;
@@ -333,6 +439,10 @@ async function loadAll() {
   trucks = [];
   truckSnap.forEach(doc => trucks.push({ id: doc.id, ...doc.data() }));
 
+  const shopSnap = await db.collection('tire_shops').orderBy('createdAt', 'asc').get();
+  shops = [];
+  shopSnap.forEach(doc => shops.push({ id: doc.id, ...doc.data() }));
+
   // 各トラックの最新交換記録を取得
   latestRecords = {};
   const recordSnap = await db.collection('tire_records').orderBy('date', 'desc').get();
@@ -344,6 +454,8 @@ async function loadAll() {
   });
 
   renderSettingsList();
+  renderTireSizeTruckSelect();
+  renderShopSettingsList();
   renderStatusList();
 }
 
@@ -363,8 +475,13 @@ function buildSummaryText() {
   let text = '【タイヤ交換状況】\n';
   trucks.forEach(t => {
     const rec = latestRecords[t.id];
-    const status = rec ? `交換済み（${formatDate(rec.date)}）` : '未交換';
-    text += `\n${t.name}（${t.tireSize}）：${status}`;
+    let status = '未交換';
+    if (rec) {
+      status = `交換済み（${formatDate(rec.date)}）`;
+      if (rec.shopName) status += `　交換場所：${rec.shopName}`;
+    }
+    const sizeLabel = t.tireSize ? t.tireSize : 'サイズ未設定';
+    text += `\n${t.name}（${sizeLabel}）：${status}`;
   });
   return text;
 }
