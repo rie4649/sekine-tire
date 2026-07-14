@@ -85,6 +85,11 @@
   button:active { opacity: 0.8; }
   button.accent { background: var(--green); }
   button.danger { background: var(--red-light); color: #c0392b; }
+  .back-btn {
+    background: none; color: var(--navy); font-weight: bold;
+    padding: 8px 4px; margin-bottom: 12px; text-align: left;
+    width: auto; box-shadow: none;
+  }
 
   .share-row { display: flex; gap: 8px; margin-bottom: 4px; }
   .share-btn {
@@ -132,6 +137,14 @@
     padding: 12px 0; border-bottom: 1px solid #eee;
   }
   .settings-row:last-child { border-bottom: none; }
+  .settings-row.edit-row { display: block; }
+  .settings-row.edit-row input { margin-top: 4px; margin-bottom: 10px; }
+  .row-btns { display: flex; flex-shrink: 0; }
+  .edit-actions { display: flex; gap: 8px; }
+  .edit-actions button { width: auto; padding: 8px 16px; font-size: 13px; }
+  button.ghost {
+    background: var(--gray-light); color: #666;
+  }
 
   .section-title {
     font-size: 14px; font-weight: bold; color: var(--navy);
@@ -186,6 +199,8 @@
 
   <!-- 設定画面：トラック登録・交換場所登録 -->
   <div id="viewSettings" class="hidden">
+    <button class="back-btn" onclick="switchTab('main')">← 記録画面に戻る</button>
+
     <div class="card">
       <div class="section-title"><span class="emoji">➕</span>トラックを登録</div>
       <label>トラック名</label>
@@ -218,6 +233,8 @@
       <div class="section-title"><span class="emoji">📋</span>登録済み交換場所</div>
       <div id="shopList"><div class="empty-msg">まだ登録がありません</div></div>
     </div>
+
+    <button class="back-btn" onclick="switchTab('main')">← 記録画面に戻る</button>
   </div>
 
 </div>
@@ -239,6 +256,7 @@ const db = firebase.firestore();
 let trucks = [];
 let shops = [];
 let latestRecords = {}; // truckId -> {date, shopName, ...}
+let editingTruckId = null;
 
 function switchTab(tab) {
   document.getElementById('viewMain').classList.toggle('hidden', tab !== 'main');
@@ -354,15 +372,63 @@ function renderSettingsList() {
     listEl.innerHTML = '<div class="empty-msg">まだ登録がありません</div>';
     return;
   }
-  listEl.innerHTML = trucks.map(t => `
-    <div class="settings-row">
-      <div>
-        <div class="truck-name">${escapeHtml(t.name)}</div>
-        <div class="truck-size">${t.tireSize ? escapeHtml(t.tireSize) : '（サイズ未設定）'}</div>
+  listEl.innerHTML = trucks.map(t => {
+    if (editingTruckId === t.id) {
+      return `
+        <div class="settings-row edit-row">
+          <div style="flex:1;">
+            <label>トラック名</label>
+            <input type="text" id="edit-name-${t.id}" value="${escapeAttr(t.name)}">
+            <label>タイヤサイズ</label>
+            <input type="text" id="edit-size-${t.id}" value="${escapeAttr(t.tireSize || '')}" placeholder="例：205/85R16">
+            <div class="edit-actions">
+              <button class="accent" onclick="saveTruckEdit('${t.id}')">保存</button>
+              <button class="ghost" onclick="cancelEditTruck()">キャンセル</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+    return `
+      <div class="settings-row">
+        <div>
+          <div class="truck-name">${escapeHtml(t.name)}</div>
+          <div class="truck-size">${t.tireSize ? escapeHtml(t.tireSize) : '（サイズ未設定）'}</div>
+        </div>
+        <div class="row-btns">
+          <button class="icon-btn" onclick="editTruck('${t.id}')">修正</button>
+          <button class="icon-btn danger" onclick="deleteTruck('${t.id}')">削除</button>
+        </div>
       </div>
-      <button class="icon-btn danger" onclick="deleteTruck('${t.id}')">削除</button>
-    </div>
-  `).join('');
+    `;
+  }).join('');
+}
+
+function editTruck(id) {
+  editingTruckId = id;
+  renderSettingsList();
+}
+
+function cancelEditTruck() {
+  editingTruckId = null;
+  renderSettingsList();
+}
+
+async function saveTruckEdit(id) {
+  const name = document.getElementById('edit-name-' + id).value.trim();
+  const size = document.getElementById('edit-size-' + id).value.trim();
+  if (!name) { alert('トラック名を入力してください'); return; }
+
+  try {
+    await db.collection('tire_trucks').doc(id).update({
+      name: name,
+      tireSize: size
+    });
+    editingTruckId = null;
+    loadAll();
+  } catch (e) {
+    alert('更新に失敗しました: ' + e.message);
+  }
 }
 
 // タイヤサイズ登録カードのトラック選択肢を描画
@@ -469,6 +535,10 @@ function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str || '';
   return div.innerHTML;
+}
+
+function escapeAttr(str) {
+  return (str || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
 }
 
 function buildSummaryText() {
